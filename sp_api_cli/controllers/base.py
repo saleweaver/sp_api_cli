@@ -32,6 +32,32 @@ class Confirm(Prompt):
             exit(1)
 
 
+class SelectionList(Prompt):
+    def __init__(self, options, next_token=None, app=None, *args, **kw):
+        self.Meta.options = options
+        self.next_token = next_token
+        self.app = app
+        super().__init__(*args, **kw)
+
+
+    class Meta:
+        text = 'Select a report'
+        numbered = True
+        max_attempts = 99
+        clear = True
+
+    def process_input(self):
+        if self.input == 'Next Page':
+            r = get_client(Reports, self.app).get_reports(nextToken=self.next_token)
+            report_pages = [
+                f"{r['reportId']} --- {r['processingStatus']} --- {r['dataStartTime']} --- {r['dataEndTime']}" for r in
+                r.reports]
+            if r.next_token:
+                report_pages = report_pages + ['Next Page']
+            SelectionList(report_pages, r.next_token, self.app)
+        else:
+            print('hier')
+
 class Base(Controller):
     class Meta:
         label = 'base'
@@ -118,6 +144,24 @@ class SpReports(Controller):
             })
         self.app.render(get_client(Reports, self.app).create_report(**opts)())
 
+    @ex(help='List Reports by type', arguments=[
+        (['reportTypes'], dict(type=str, metavar='REPORT_TYPES', action='store')),
+        (['--processingStatuses', '-p'], dict(dest='processingStatuses', action='store'))
+    ])
+    def list(self):
+        if self.app.pargs.processingStatuses:
+            res = get_client(Reports, self.app).get_reports(reportTypes=self.app.pargs.reportTypes.split(','),
+                                                            processingStatuses=self.app.pargs.processingStatuses.split(
+                                                                ','))
+        else:
+            res = get_client(Reports, self.app).get_reports(reportTypes=self.app.pargs.reportTypes.split(','))
+        report_pages = [f"{r['reportId']} --- {r['processingStatus']} --- {r['dataStartTime']} --- {r['dataEndTime']}" for r in res.reports]
+        if res.next_token:
+            report_pages = report_pages + ['Next Page']
+        SelectionList(report_pages, res.next_token, self.app)
+
+
+
     @ex(
         help='Download Report',
         arguments=[
@@ -132,3 +176,4 @@ class SpReports(Controller):
         self.app.render(get_client(Reports, self.app).get_report_document(self.app.pargs.reportDocumentId,
                                                                           file=open(self.app.pargs.file, 'w+'))())
         self.app.log.info(f'''File saved! {os.path.abspath(self.app.pargs.file)}''')
+
